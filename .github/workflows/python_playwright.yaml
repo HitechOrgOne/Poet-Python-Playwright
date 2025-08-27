@@ -21,18 +21,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java (for Allure)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Verify Python and Java installation
+      - name: Verify Python installation
         run: |
           python --version
           pip --version
-          java -version
-          javac -version
 
       - name: Set environment URL
         run: echo "BASE_URL=${{ vars.STAGING_URL }}" >> $GITHUB_ENV
@@ -49,17 +41,13 @@ jobs:
           pytest PythonProject/e2e/tests --alluredir=PythonProject/e2e/reports/allure-results -v
           ls -R PythonProject/e2e/reports || echo "No reports generated"
 
-      - name: Install Allure Commandline
-        run: |
-          curl -o allure-2.27.0.tgz -L https://github.com/allure-framework/allure2/releases/download/2.27.0/allure-2.27.0.tgz
-          tar -xvzf allure-2.27.0.tgz
-          mv allure-2.27.0 /opt/allure
-          ln -s /opt/allure/bin/allure /usr/local/bin/allure
-
-      - name: Generate Allure report
+      - name: Generate Allure report using Docker
         if: always()
         run: |
-          allure generate PythonProject/e2e/reports/allure-results --clean -o PythonProject/e2e/reports/allure-report || echo "No allure results found"
+          docker run --rm \
+            -v ${{ github.workspace }}/PythonProject/e2e/reports/allure-results:/allure-results \
+            -v ${{ github.workspace }}/PythonProject/e2e/reports/allure-report:/allure-report \
+            frankescobar/allure-docker-service generate || echo "No allure results found"
 
       - name: Upload Allure report (HTML)
         if: always()
@@ -94,6 +82,6 @@ jobs:
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
         run: |
-          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")  # Or use TZ="Asia/Kolkata" for IST
+          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
           echo "Uploading to s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
           aws s3 cp --recursive PythonProject/e2e/reports/allure-report/ "s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
