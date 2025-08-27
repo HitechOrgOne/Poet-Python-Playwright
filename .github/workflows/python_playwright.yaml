@@ -10,9 +10,10 @@ on:
 
 jobs:
   test:
-    name: Run Playwright with Allure on EC2 (Python)
+    name: Run Playwright & upload Allure results
     runs-on: ubuntu-latest
 
+    # Runs all steps inside the Playwright image
     container:
       image: mcr.microsoft.com/playwright/python:v1.44.0-jammy
       options: --entrypoint ""
@@ -38,15 +39,36 @@ jobs:
           pip install -r PythonProject/e2e/requirements.txt
           pip install pytest-playwright allure-pytest
           playwright install --with-deps
+          mkdir -p PythonProject/e2e/reports/allure-results
           pytest PythonProject/e2e/tests --alluredir=PythonProject/e2e/reports/allure-results -v
           ls -R PythonProject/e2e/reports || echo "No reports generated"
 
-      - name: Generate Allure report using Docker
+      - name: Upload raw Allure results
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: PythonProject/e2e/reports/allure-results
+
+  generate-report-and-upload:
+    name: Generate Allure (Docker) & upload to S3
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download raw Allure results
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+
+      - name: Generate Allure report using Docker
         run: |
+          mkdir -p reports/allure-report
           docker run --rm \
-            -v ${{ github.workspace }}/PythonProject/e2e/reports/allure-results:/allure-results \
-            -v ${{ github.workspace }}/PythonProject/e2e/reports/allure-report:/allure-report \
+            -v "${{ github.workspace }}/allure-results:/allure-results" \
+            -v "${{ github.workspace }}/reports/allure-report:/allure-report" \
             frankescobar/allure-docker-service generate || echo "No allure results found"
 
       - name: Upload Allure report (HTML)
@@ -54,15 +76,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: PythonProject/e2e/reports/allure-report/
+          path: reports/allure-report/
 
       - name: Install AWS CLI v2 (standalone)
         if: always()
         run: |
-          apt-get update
-          apt-get install -y unzip sudo
+          sudo apt-get update
+          sudo apt-get install -y unzip
           curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
+          unzip -q awscliv2.zip
           sudo ./aws/install
           aws --version
 
@@ -77,11 +99,15 @@ jobs:
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
 
-      - name: Upload Allure report to S3 with timestamp
+      - name: Upload Allure report to S3 with timestamp (safe)
         if: always()
         env:
-          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUNDLE_NAME || secrets.S3_BUCKET_NAME }}
         run: |
-          TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-          echo "Uploading to s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
-          aws s3 cp --recursive PythonProject/e2e/reports/allure-report/ "s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
+          if [ -d "reports/allure-report" ]; then
+            TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+            echo "Uploading to s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
+            aws s3 cp --recursive reports/allure-report/ "s3://$S3_BUCKET_NAME/allure-report/$TIMESTAMP/"
+          else
+            echo "No Allure report found to upload."
+          fi
