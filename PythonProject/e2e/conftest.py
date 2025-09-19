@@ -5,7 +5,6 @@ from dotenv import dotenv_values
 from e2e.utils.file_utils import FileUtils
 import allure
 from e2e.constants import  ENV_FILE_NAME
-from utils.config import get_env_variable
 
 # Resolve project root dynamically (conftest.py lives inside e2e/)
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
