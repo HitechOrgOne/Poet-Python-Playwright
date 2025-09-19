@@ -130,3 +130,21 @@ def pytest_runtest_makereport(item, call):
                     )
             except Exception:
                 pass
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--allure-report",
+        action="store_true",
+        default=True,
+        help="Generate Allure report after test run"
+    )
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session):
+    if session.config.getoption("--allure-report"):
+        if shutil.which("allure"):
+            generate_allure_report()
+        else:
+            print("\n⚠️ Allure CLI not found. Install it and add to PATH.")
+    else:
+        print("\nℹ️ Skipping Allure report generation (use --allure-report to enable).")
